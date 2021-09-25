@@ -32,6 +32,11 @@ static const constexpr int Scale_chrom[] = {C  , C_s, D  , D_s, E  , F  , F_s, G
 static const char *CodeName[] = {"C", "C#", "D", "D#", "E", "", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const constexpr size_t N_CodeName = sizeof(CodeName)/sizeof(char *);
 
+enum ScaleType {
+	Major = 0, Minor, HarmonicMinor, WholeTone, Diminish, Chromatic,
+	InvalidScale
+};
+
 struct Pitch
 {
 	size_t index;
@@ -40,6 +45,8 @@ struct Pitch
 
 bool operator==(const Pitch &lhs, const Pitch &rhs);
 bool operator!=(const Pitch &lhs, const Pitch &rhs);
+Pitch &operator++(Pitch &lhs);
+Pitch &operator--(Pitch &lhs);
 
 int quantize(int input, const int * const scale, int n_scale, int n_transpose, Pitch &);
 
@@ -49,5 +56,6 @@ int exec_quantizer(int input, const T (&scale)[N], Pitch &p, int n_transpose = 0
 }
 
 int generate_quantized(const Pitch &p);
+const char *get_scale_name(const enum ScaleType typ);
 
 #endif // QUANTIZER_LOGIC__H

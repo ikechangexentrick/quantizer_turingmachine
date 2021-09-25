@@ -1,18 +1,272 @@
 #include <SPI.h>
 #include "quantizer_logic.h"
+#include "quantizer_ui.h"
+#include "button.h"
+
+#define ICACHE_RAM_ATTR
 
 static const int SERIAL_BAUD_RATE = 9600;
+
+static const size_t BUFLEN = 64;
+char msg_buf[BUFLEN];
+
+template <typename... Args>
+void serial_log(const char *fmt, Args... args)
+{
+	snprintf(msg_buf, BUFLEN, fmt, args...);
+	Serial.println( msg_buf );
+}
+
+//  -----------------------------------------------
 
 static const size_t N_CH = 4096;
 static const double V_REF = 5.0;
 static const int PIN_AD_CS = 10;
 
-static const int PIN_DA_CS = 9;
+static const int PIN_DA_CS = 4;
 static const int PIN_DA_LATCH = 8;
+
+static const int PIN_ROTARY_SW1 = 7; // attachInterrupt
+static const int PIN_ROTARY_SW2 = 6;
+static const int PIN_BUTTON = 9; // pin change interrupt
 
 SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
 
+//  -----------------------------------------------
+
+MenuApp app_menu;
+Menu_Calib menu_calib;
+Menu_Transpose menu_trans;
+Menu_Scale menu_scale;
+
+Menu *cur_menu = &menu_scale;
+
+ScaleApp app_scale;
+TransposeApp app_transpose;
+CalibApp app_calib;
+
+Application *app = nullptr;
+
+//  -----------------------------------------------
+
+void ScaleApp::onButton(int state)
+{
+	if (state == 1) {
+		app = &app_menu;
+
+		serial_log("ScaleApp::onButton: exiting..");
+	}
+}
+
+void ScaleApp::onRotarySW(RotarySwitch::RSW_DIR dir)
+{
+	if (dir == RotarySwitch::CW) {
+		if (current_scale < InvalidScale-1) {
+			int tmp = (int)current_scale;
+			tmp += 1;
+			current_scale = (ScaleType) tmp;
+		}
+	} else {
+		if (current_scale > 0) {
+			int tmp = (int)current_scale;
+			tmp -= 1;
+			current_scale = (ScaleType) tmp;
+		}
+	}
+
+	update_n_transpose();
+
+	serial_log("ScaleApp::onRotarySW: %d %s", dir, ::get_scale_name(current_scale));
+}
+
+int ScaleApp::exec_quantizer(int input, Pitch &p, int transpose)
+{
+	if (current_scale == Major) {
+		return ::exec_quantizer(input, Scale_major, p, transpose);
+	} else if (current_scale == Minor) {
+		return ::exec_quantizer(input, Scale_minor, p, transpose);
+	} else if (current_scale == HarmonicMinor) {
+		return ::exec_quantizer(input, Scale_hmmin, p, transpose);
+	} else if (current_scale == WholeTone) {
+		return ::exec_quantizer(input, Scale_whole, p, transpose);
+	} else if (current_scale == Diminish) {
+		return ::exec_quantizer(input, Scale_dimsh, p, transpose);
+	} else if (current_scale == Chromatic) {
+		return ::exec_quantizer(input, Scale_chrom, p, transpose);
+	} else {
+		return 0;
+	}
+}
+
+void ScaleApp::update_n_transpose()
+{
+	if (current_scale == Major) {
+		n_transpose = sizeof(Scale_major)/sizeof(int);
+	} else if (current_scale == Minor) {
+		n_transpose = sizeof(Scale_minor)/sizeof(int);
+	} else if (current_scale == HarmonicMinor) {
+		n_transpose = sizeof(Scale_hmmin)/sizeof(int);
+	} else if (current_scale == WholeTone) {
+		n_transpose = sizeof(Scale_whole)/sizeof(int);
+	} else if (current_scale == Diminish) {
+		n_transpose = sizeof(Scale_dimsh)/sizeof(int);
+	} else if (current_scale == Chromatic) {
+		n_transpose = sizeof(Scale_chrom)/sizeof(int);
+	} else {
+		n_transpose = 0;
+	}
+}
+
+
+//  -----------------------------------------------
+
+void TransposeApp::onRotarySW(RotarySwitch::RSW_DIR dir)
+{
+	if (dir == RotarySwitch::CW) {
+		if (transpose < app_scale.get_n_transpose()-1) {
+			transpose += 1;
+		}
+	} else {
+		if (transpose > 0) {
+			transpose -= 1;
+		}
+	}
+
+	serial_log("TransposeApp::onRotarySW: %d %d", dir, transpose);
+}
+
+void TransposeApp::onButton(int state)
+{
+	if (state == 1) {
+		app = &app_menu;
+
+		serial_log("TransposeApp::onButton: exiting..");
+	}
+}
+
+//  -----------------------------------------------
+
+void CalibApp::onRotarySW(RotarySwitch::RSW_DIR dir)
+{
+	if (dir == RotarySwitch::CW) {
+		current++;
+	} else {
+		current--;
+	}
+
+	serial_log("CalibApp::onRotarySW: %d %s %d", dir, CodeName[current.index], current.oct);
+}
+
+void CalibApp::onButton(int state)
+{
+	if (state == 1) {
+		app = &app_menu;
+
+		serial_log("CalibApp::onButton: exiting..");
+	}
+}
+
+//  -----------------------------------------------
+
+void MenuApp::onRotarySW(RotarySwitch::RSW_DIR dir)
+{
+	if (dir == RotarySwitch::CW) {
+		if (cur_menu->next) cur_menu = cur_menu->next;
+
+	} else {
+		if (cur_menu->prev) cur_menu = cur_menu->prev;
+
+	}
+
+	serial_log("MenuApp::onRotarySW: %d %s", dir, cur_menu->get_title() );
+}
+
+void MenuApp::onButton(int state)
+{
+	if (state == 1) {
+		if (cur_menu->child) cur_menu = cur_menu->child;
+		else cur_menu->exec();
+	}
+}
+
+void Menu_Back::exec() {
+	if (cur_menu->parent) cur_menu = cur_menu->parent;
+}
+
+//  -----------------------------------------------
+
+void Menu_Scale::exec()
+{
+	serial_log("Menu_Scale::exec: %s", app_scale.get_scale_name());
+
+	app = &app_scale;
+}
+
+void Menu_Transpose::exec()
+{
+	serial_log("Menu_Transpose::exec: %d", app_transpose.get_transpose());
+
+	app = &app_transpose;
+}
+
+void Menu_Calib::exec()
+{
+	auto p = app_calib.get_pitch();
+	serial_log("Menu_Calib::exec: %s %d", CodeName[p.index], p.oct);
+
+	app = &app_calib;
+}
+
+//  -----------------------------------------------
+
+class RSW_cmd : public RotarySwitch
+{
+public:
+	RSW_cmd(int pin_1, int pin_2)
+		: RotarySwitch(pin_1, pin_2)
+	{}
+
+private:
+	virtual void onRotarySW(RSW_DIR dir) override
+	{
+		if (app) app->onRotarySW(dir);
+	}
+};
+
+RSW_cmd rsw1(PIN_ROTARY_SW1, PIN_ROTARY_SW2);
+ICACHE_RAM_ATTR void onRotarySW()
+{
+	rsw1.callback();
+}
+
+//  -----------------------------------------------
+
+class Button_func : public Button
+{
+public:
+	Button_func(int pin)
+		: Button(pin)
+	{}
+
+private:
+	virtual void onButton(int state) override
+	{
+		if (app) app->onButton(state);
+	}
+};
+
+Button_func button_1(PIN_BUTTON);
+
+//  -----------------------------------------------
+
+ISR(PCINT0_vect)
+{
+	button_1.callback();
+}
+
 void setup() {
+	app = &app_menu;
+
   Serial.begin(SERIAL_BAUD_RATE);
 
 	pinMode(PIN_AD_CS, OUTPUT);
@@ -20,13 +274,25 @@ void setup() {
 	pinMode(PIN_DA_CS, OUTPUT);
 	pinMode(PIN_DA_LATCH, OUTPUT);
 
-	pinMode(7, INPUT_PULLUP);
+	pinMode(PIN_ROTARY_SW1, INPUT);
+	pinMode(PIN_ROTARY_SW2, INPUT);
+	attachInterrupt(digitalPinToInterrupt(PIN_ROTARY_SW1), onRotarySW, CHANGE);
+
+	pinMode(PIN_BUTTON, INPUT_PULLUP);
+
+	PCICR = 0;
+	PCMSK0 = 
+		1 << 5 // 9
+	;
+	PCICR = 
+		1 // PCIE0
+	;
+
+	menu_trans.add_sibling(&menu_calib);
+	menu_scale.add_sibling(&menu_trans);
 
 	SPI.begin();
 }
-
-static const size_t BUFLEN = 64;
-char msg_buf[BUFLEN];
 
 unsigned int receive() {
 	SPI.beginTransaction(settings);
@@ -52,13 +318,6 @@ void emit(unsigned int data)
 		digitalWrite(PIN_DA_LATCH, LOW);
 	SPI.endTransaction();
 }
-
-struct Slot
-{
-	unsigned int v_min;
-	unsigned int v_max;
-	unsigned int v_out;
-};
 
 
 /* A-D measurement
@@ -99,40 +358,22 @@ unsigned int calibrate(unsigned int in)
 	return 8.4163e-1*(double)in +427.62774;
 }
 
-unsigned int convert_test(unsigned int input)
-{
-	static const Slot table[] = {
-		{0, 1024, 512}
-		, {1024, 2048, 1024+512}
-		, {2048, 3072, 2048+512}
-		, {3072, 4096, 3072+512}
-	};
-
-	for (int i = 0; i < sizeof(table)/sizeof(Slot); ++i) {
-		if (table[i].v_min <= input && input < table[i].v_max) {
-			return table[i].v_out;
-		}
-	}
-
-	snprintf(msg_buf, BUFLEN, "0: %d", input);
-	Serial.println(msg_buf);
-	return 0;
-}
-
 unsigned int convert(unsigned int input)
 {
-	//return convert_test(input);
-
 	static Pitch prev;
 	Pitch p;
-	int value = exec_quantizer(input
-		//, Scale_major
-		, Scale_minor
-	, p, 0);
+	int value;
+	int transpose = app_transpose.get_transpose();
+
+	if (app == &app_calib) {
+		p = app_calib.get_pitch();
+		value = generate_quantized(p);
+	} else {
+		value = app_scale.exec_quantizer(input, p, transpose);
+	}
 
 	if (prev != p) {
-		snprintf(msg_buf, BUFLEN, " %s %d", CodeName[p.index], p.oct);
-		Serial.println(msg_buf);
+		serial_log(" %s %d", CodeName[p.index], p.oct);
 		prev = p;
 	}
 
@@ -141,31 +382,17 @@ unsigned int convert(unsigned int input)
 
 void loop() {
 	unsigned int data_ch0 = receive();
-	//data_ch0 = calibrate(data_ch0);
 
-	if (digitalRead(7) == HIGH) {
 //*
 	data_ch0 = 
 		convert(data_ch0)
 	;
 // */
 	emit(data_ch0);
-	} else {
-		Pitch p;
-		p.index = 10; // A
-		p.oct = 2;
-		int out = generate_quantized(p);
-/*
-	snprintf(msg_buf, BUFLEN, " %d", out);
-	Serial.println(msg_buf);
-*/
-		emit(out);
-	}
 
 /*
 	double v_ch0 = data_ch0 *V_REF/(double)N_CH;
 
-	snprintf(msg_buf, BUFLEN, "AD_OUT: %d Volts: %lf", data_ch0, v_ch0);
-	Serial.println(msg_buf);
+	serial_log("AD_OUT: %d Volts: %lf", data_ch0, v_ch0);
 // */
 }

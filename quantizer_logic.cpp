@@ -12,6 +12,26 @@ bool operator!=(const Pitch &lhs, const Pitch &rhs)
 	return !(lhs == rhs);
 }
 
+Pitch &operator++(Pitch &self)
+{
+	if (self.index == 4) self.index = 6;
+	else if ( self.index < 12) ++self.index;
+	else {
+		self.index = 0;
+		++self.oct;
+	}
+}
+
+Pitch &operator--(Pitch &self)
+{
+	if (self.index == 6) self.index = 4;
+	else if ( self.index > 0) --self.index;
+	else if (self.oct > 0) {
+		self.index = 12;
+		--self.oct;
+	}
+}
+
 int transpose(int index, int n_transpose, const int *const scale, int n_scale)
 {
 	if (n_transpose > 0) n_transpose %= n_scale;
@@ -88,3 +108,23 @@ int generate_quantized(const Pitch &p)
 {
 	return p.oct *(2*QPit*13) + p.index *(2*QPit);
 }
+
+const char *get_scale_name(const enum ScaleType typ)
+{
+	if (typ == Major) {
+		return "Major";
+	} else if (typ == Minor) {
+		return "Minor";
+	} else if (typ == HarmonicMinor) {
+		return "HarmonicMinor";
+	} else if (typ == WholeTone) {
+		return "WholeTone";
+	} else if (typ == Diminish) {
+		return "Diminish";
+	} else if (typ == Chromatic) {
+		return "Chromatic";
+	} else {
+		return "Invalid Scale";
+	}
+}
+
