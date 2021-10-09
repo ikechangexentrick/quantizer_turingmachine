@@ -4,6 +4,15 @@
 #include "quantizer_logic.h"
 #include "button.h"
 
+class Application
+{
+public:
+	virtual void onRotarySW(RotarySwitch::RSW_DIR dir) = 0;
+	virtual void onButton(int state) = 0;
+};
+
+//  -----------------------------------------------
+
 struct Menu
 {
 	Menu(const char *title)
@@ -34,12 +43,6 @@ struct Menu
 	const char *title;
 };
 
-struct Menu_Back : Menu
-{
-	Menu_Back(const char *title) : Menu(title) {}
-	void exec() override;
-};
-
 struct Menu_Transpose : Menu
 {
 	Menu_Transpose() : Menu("Transpose>") {}
@@ -63,21 +66,27 @@ struct Menu_Scale : Menu
 
 //  -----------------------------------------------
 
-class Application
-{
-public:
-	virtual void onRotarySW(RotarySwitch::RSW_DIR dir) = 0;
-	virtual void onButton(int state) = 0;
-};
-
-//  -----------------------------------------------
-
 
 class MenuApp : public Application
 {
 public:
+	MenuApp(Menu *top) : current(top) {}
 	void onRotarySW(RotarySwitch::RSW_DIR dir) override;
 	void onButton(int state) override;
+	Menu * const get_current() const {return current;}
+
+private:
+	Menu *current;
+};
+
+struct Menu_Back : Menu
+{
+	Menu_Back(const char *title, const MenuApp *const app)
+		: Menu(title), app(app)
+	{}
+	void exec() override;
+
+	MenuApp *app;
 };
 
 //  -----------------------------------------------

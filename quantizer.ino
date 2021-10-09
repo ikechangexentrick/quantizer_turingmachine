@@ -21,10 +21,10 @@ void serial_log(const char *fmt, Args... args)
 
 static const size_t N_CH = 4096;
 static const double V_REF = 5.0;
-static const int PIN_AD_CS = 10;
+static const int PIN_AD_CS = 19; // 10;
 
 static const int PIN_DA_CS = 4;
-static const int PIN_DA_LATCH = 8;
+static const int PIN_DA_LATCH = 18;// 8;
 
 static const int PIN_ROTARY_SW1 = 7; // attachInterrupt
 static const int PIN_ROTARY_SW2 = 6;
@@ -34,18 +34,75 @@ SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
 
 //  -----------------------------------------------
 
-MenuApp app_menu;
+/*
+123456789|123456789|
+[HarmonicMinor D# 0]
+[Transpose>        ]
+[HarmonicMinor     ]
+*/
+
+class Display
+{
+	const static size_t TMPLEN = 21;
+
+public:
+	Display()
+	{
+		memset(dispbuf, 0x20, BUFLEN);
+		memset(tmp, 0x20, TMPLEN);
+	}
+
+	void show_menu(const char *title)
+	{
+		memset(tmp, 0x20, TMPLEN);
+		memset(dispbuf + 20, 0x20, 20);
+		snprintf(tmp, TMPLEN, "%s", title);
+		memcpy(dispbuf + 20, tmp, strlen(tmp));
+		dispbuf[61] = 0;
+		Serial.println(dispbuf);
+	}
+
+	template <typename... Args>
+	void Display::show_app_msg(const char *fmt, Args... args)
+	{
+		memset(tmp, 0x20, TMPLEN);
+		memset(dispbuf + 40, 0x20, 20);
+		snprintf(tmp, TMPLEN, fmt, args...);
+		memcpy(dispbuf + 40, tmp, strlen(tmp));
+		dispbuf[61] = 0;
+		Serial.println(dispbuf);
+	}
+
+	template <typename... Args>
+	void Display::show_status(const char *fmt, Args... args)
+	{
+		memset(tmp, 0x20, TMPLEN);
+		memset(dispbuf, 0x20, 20);
+		snprintf(tmp, TMPLEN, fmt, args...);
+		memcpy(dispbuf, tmp, strlen(tmp));
+		dispbuf[61] = 0;
+		Serial.println(dispbuf);
+	}
+
+private:
+	char dispbuf[BUFLEN];
+	char tmp[TMPLEN];
+};
+
+Display display;
+
 Menu_Calib menu_calib;
 Menu_Transpose menu_trans;
 Menu_Scale menu_scale;
 
-Menu *cur_menu = &menu_scale;
+MenuApp app_menu(&menu_scale);
 
 ScaleApp app_scale;
 TransposeApp app_transpose;
 CalibApp app_calib;
 
-Application *app = nullptr;
+Application *app = &app_menu;
+
 
 //  -----------------------------------------------
 
@@ -54,7 +111,9 @@ void ScaleApp::onButton(int state)
 	if (state == 1) {
 		app = &app_menu;
 
-		serial_log("ScaleApp::onButton: exiting..");
+		display.show_app_msg(" ");
+		//serial_log("ScaleApp::onButton: exiting..");
+		display.show_menu(app_menu.get_current()->get_title());
 	}
 }
 
@@ -76,7 +135,8 @@ void ScaleApp::onRotarySW(RotarySwitch::RSW_DIR dir)
 
 	update_n_transpose();
 
-	serial_log("ScaleApp::onRotarySW: %d %s", dir, ::get_scale_name(current_scale));
+	//serial_log("ScaleApp::onRotarySW: %d %s", dir, ::get_scale_name(current_scale));
+	display.show_app_msg(" %s", ::get_scale_name(current_scale));
 }
 
 int ScaleApp::exec_quantizer(int input, Pitch &p, int transpose)
@@ -132,7 +192,8 @@ void TransposeApp::onRotarySW(RotarySwitch::RSW_DIR dir)
 		}
 	}
 
-	serial_log("TransposeApp::onRotarySW: %d %d", dir, transpose);
+	//serial_log("TransposeApp::onRotarySW: %d %d", dir, transpose);
+	display.show_app_msg(" %d", transpose);
 }
 
 void TransposeApp::onButton(int state)
@@ -140,7 +201,8 @@ void TransposeApp::onButton(int state)
 	if (state == 1) {
 		app = &app_menu;
 
-		serial_log("TransposeApp::onButton: exiting..");
+		display.show_app_msg(" ");
+		display.show_menu(app_menu.get_current()->get_title());
 	}
 }
 
@@ -154,7 +216,8 @@ void CalibApp::onRotarySW(RotarySwitch::RSW_DIR dir)
 		current--;
 	}
 
-	serial_log("CalibApp::onRotarySW: %d %s %d", dir, CodeName[current.index], current.oct);
+	//serial_log("CalibApp::onRotarySW: %d %s %d", dir, CodeName[current.index], current.oct);
+	display.show_app_msg(" %s %d", CodeName[current.index], current.oct);
 }
 
 void CalibApp::onButton(int state)
@@ -162,7 +225,8 @@ void CalibApp::onButton(int state)
 	if (state == 1) {
 		app = &app_menu;
 
-		serial_log("CalibApp::onButton: exiting..");
+		display.show_app_msg(" ");
+		display.show_menu(app_menu.get_current()->get_title());
 	}
 }
 
@@ -171,40 +235,44 @@ void CalibApp::onButton(int state)
 void MenuApp::onRotarySW(RotarySwitch::RSW_DIR dir)
 {
 	if (dir == RotarySwitch::CW) {
-		if (cur_menu->next) cur_menu = cur_menu->next;
+		if (current->next) current = current->next;
 
 	} else {
-		if (cur_menu->prev) cur_menu = cur_menu->prev;
+		if (current->prev) current = current->prev;
 
 	}
 
-	serial_log("MenuApp::onRotarySW: %d %s", dir, cur_menu->get_title() );
+	//serial_log("MenuApp::onRotarySW: %d %s", dir, current->get_title() );
+	display.show_menu(current->get_title());
 }
 
 void MenuApp::onButton(int state)
 {
 	if (state == 1) {
-		if (cur_menu->child) cur_menu = cur_menu->child;
-		else cur_menu->exec();
+		if (current->child) current = current->child;
+		else current->exec();
 	}
 }
 
 void Menu_Back::exec() {
-	if (cur_menu->parent) cur_menu = cur_menu->parent;
+	auto current = app->get_current();
+	if (current->parent) current = current->parent;
 }
 
 //  -----------------------------------------------
 
 void Menu_Scale::exec()
 {
-	serial_log("Menu_Scale::exec: %s", app_scale.get_scale_name());
+	display.show_app_msg(" %s", app_scale.get_scale_name());
+	//serial_log("Menu_Scale::exec: %s", app_scale.get_scale_name());
 
 	app = &app_scale;
 }
 
 void Menu_Transpose::exec()
 {
-	serial_log("Menu_Transpose::exec: %d", app_transpose.get_transpose());
+	display.show_app_msg(" %d", app_transpose.get_transpose());
+	//serial_log("Menu_Transpose::exec: %d", app_transpose.get_transpose());
 
 	app = &app_transpose;
 }
@@ -212,7 +280,8 @@ void Menu_Transpose::exec()
 void Menu_Calib::exec()
 {
 	auto p = app_calib.get_pitch();
-	serial_log("Menu_Calib::exec: %s %d", CodeName[p.index], p.oct);
+	//serial_log("Menu_Calib::exec: %s %d", CodeName[p.index], p.oct);
+	display.show_app_msg(" %s %d", CodeName[p.index], p.oct);
 
 	app = &app_calib;
 }
@@ -265,8 +334,6 @@ ISR(PCINT0_vect)
 }
 
 void setup() {
-	app = &app_menu;
-
   Serial.begin(SERIAL_BAUD_RATE);
 
 	pinMode(PIN_AD_CS, OUTPUT);
@@ -373,7 +440,7 @@ unsigned int convert(unsigned int input)
 	}
 
 	if (prev != p) {
-		serial_log(" %s %d", CodeName[p.index], p.oct);
+		//display.show_status("%s %s %d", app_scale.get_scale_name(), CodeName[p.index], p.oct);
 		prev = p;
 	}
 
