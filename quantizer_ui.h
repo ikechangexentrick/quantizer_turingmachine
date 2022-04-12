@@ -1,47 +1,8 @@
 #ifndef QUANTIZER_UI__H
 #define QUANTIZER_UI__H
 
+#include "ui_common.h"
 #include "quantizer_logic.h"
-#include "button.h"
-
-class Application
-{
-public:
-	virtual void onRotarySW(RotarySwitch::RSW_DIR dir) = 0;
-	virtual void onButton(int state) = 0;
-};
-
-//  -----------------------------------------------
-
-struct Menu
-{
-	Menu(const char *title)
-		: next(nullptr), prev(nullptr), child(nullptr), parent(nullptr), title(title)
-	{}
-
-	virtual const char *get_title() { return title; }
-
-	void add_sibling(Menu *p)
-	{
-		next = p;
-		p->prev = this;
-	}
-
-	void add_child(Menu *p)
-	{
-		child = p;
-		p->parent = this;
-	}
-
-	virtual void exec() {};
-
-	Menu *next;
-	Menu *prev;
-	Menu *child;
-	Menu *parent;
-
-	const char *title;
-};
 
 struct Menu_Transpose : Menu
 {
@@ -66,7 +27,7 @@ struct Menu_Scale : Menu
 
 //  -----------------------------------------------
 
-
+/*
 class MenuApp : public Application
 {
 public:
@@ -88,6 +49,7 @@ struct Menu_Back : Menu
 
 	MenuApp *app;
 };
+*/
 
 //  -----------------------------------------------
 

@@ -2,6 +2,8 @@
 #include "quantizer_logic.h"
 #include "quantizer_ui.h"
 #include "button.h"
+#include "Display_OLED.h"
+#include "AD_DA_Converters.h"
 
 #define ICACHE_RAM_ATTR
 
@@ -19,6 +21,10 @@ void serial_log(const char *fmt, Args... args)
 
 //  -----------------------------------------------
 
+SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
+
+//  -----------------------------------------------
+
 static const size_t N_CH = 4096;
 static const double V_REF = 5.0;
 static const int PIN_AD_CS = 19; // 10;
@@ -26,11 +32,9 @@ static const int PIN_AD_CS = 19; // 10;
 static const int PIN_DA_CS = 4;
 static const int PIN_DA_LATCH = 18;// 8;
 
-static const int PIN_ROTARY_SW1 = 7; // attachInterrupt
+static const int PIN_ROTARY_SW1 = 10; // pin change interrupt // 7
 static const int PIN_ROTARY_SW2 = 6;
 static const int PIN_BUTTON = 9; // pin change interrupt
-
-SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
 
 //  -----------------------------------------------
 
@@ -41,250 +45,26 @@ SPISettings settings(1000000, MSBFIRST, SPI_MODE0);
 [HarmonicMinor     ]
 */
 
-class Display
-{
-	const static size_t TMPLEN = 21;
+Display_OLED display;
 
-public:
-	Display()
-	{
-		memset(dispbuf, 0x20, BUFLEN);
-		memset(tmp, 0x20, TMPLEN);
-	}
+//  -----------------------------------------------
 
-	void show_menu(const char *title)
-	{
-		memset(tmp, 0x20, TMPLEN);
-		memset(dispbuf + 20, 0x20, 20);
-		snprintf(tmp, TMPLEN, "%s", title);
-		memcpy(dispbuf + 20, tmp, strlen(tmp));
-		dispbuf[61] = 0;
-		Serial.println(dispbuf);
-	}
+MCP3208 ad_converter(settings, PIN_AD_CS);
+MCP4922 da_converter(settings, PIN_DA_CS, PIN_DA_LATCH);
 
-	template <typename... Args>
-	void Display::show_app_msg(const char *fmt, Args... args)
-	{
-		memset(tmp, 0x20, TMPLEN);
-		memset(dispbuf + 40, 0x20, 20);
-		snprintf(tmp, TMPLEN, fmt, args...);
-		memcpy(dispbuf + 40, tmp, strlen(tmp));
-		dispbuf[61] = 0;
-		Serial.println(dispbuf);
-	}
-
-	template <typename... Args>
-	void Display::show_status(const char *fmt, Args... args)
-	{
-		memset(tmp, 0x20, TMPLEN);
-		memset(dispbuf, 0x20, 20);
-		snprintf(tmp, TMPLEN, fmt, args...);
-		memcpy(dispbuf, tmp, strlen(tmp));
-		dispbuf[61] = 0;
-		Serial.println(dispbuf);
-	}
-
-private:
-	char dispbuf[BUFLEN];
-	char tmp[TMPLEN];
-};
-
-Display display;
+//  -----------------------------------------------
 
 Menu_Calib menu_calib;
 Menu_Transpose menu_trans;
 Menu_Scale menu_scale;
 
-MenuApp app_menu(&menu_scale);
+MenuApp app_menu(&menu_scale, &display);
 
 ScaleApp app_scale;
 TransposeApp app_transpose;
 CalibApp app_calib;
 
 Application *app = &app_menu;
-
-
-//  -----------------------------------------------
-
-void ScaleApp::onButton(int state)
-{
-	if (state == 1) {
-		app = &app_menu;
-
-		display.show_app_msg(" ");
-		//serial_log("ScaleApp::onButton: exiting..");
-		display.show_menu(app_menu.get_current()->get_title());
-	}
-}
-
-void ScaleApp::onRotarySW(RotarySwitch::RSW_DIR dir)
-{
-	if (dir == RotarySwitch::CW) {
-		if (current_scale < InvalidScale-1) {
-			int tmp = (int)current_scale;
-			tmp += 1;
-			current_scale = (ScaleType) tmp;
-		}
-	} else {
-		if (current_scale > 0) {
-			int tmp = (int)current_scale;
-			tmp -= 1;
-			current_scale = (ScaleType) tmp;
-		}
-	}
-
-	update_n_transpose();
-
-	//serial_log("ScaleApp::onRotarySW: %d %s", dir, ::get_scale_name(current_scale));
-	display.show_app_msg(" %s", ::get_scale_name(current_scale));
-}
-
-int ScaleApp::exec_quantizer(int input, Pitch &p, int transpose)
-{
-	if (current_scale == Major) {
-		return ::exec_quantizer(input, Scale_major, p, transpose);
-	} else if (current_scale == Minor) {
-		return ::exec_quantizer(input, Scale_minor, p, transpose);
-	} else if (current_scale == HarmonicMinor) {
-		return ::exec_quantizer(input, Scale_hmmin, p, transpose);
-	} else if (current_scale == WholeTone) {
-		return ::exec_quantizer(input, Scale_whole, p, transpose);
-	} else if (current_scale == Diminish) {
-		return ::exec_quantizer(input, Scale_dimsh, p, transpose);
-	} else if (current_scale == Chromatic) {
-		return ::exec_quantizer(input, Scale_chrom, p, transpose);
-	} else {
-		return 0;
-	}
-}
-
-void ScaleApp::update_n_transpose()
-{
-	if (current_scale == Major) {
-		n_transpose = sizeof(Scale_major)/sizeof(int);
-	} else if (current_scale == Minor) {
-		n_transpose = sizeof(Scale_minor)/sizeof(int);
-	} else if (current_scale == HarmonicMinor) {
-		n_transpose = sizeof(Scale_hmmin)/sizeof(int);
-	} else if (current_scale == WholeTone) {
-		n_transpose = sizeof(Scale_whole)/sizeof(int);
-	} else if (current_scale == Diminish) {
-		n_transpose = sizeof(Scale_dimsh)/sizeof(int);
-	} else if (current_scale == Chromatic) {
-		n_transpose = sizeof(Scale_chrom)/sizeof(int);
-	} else {
-		n_transpose = 0;
-	}
-}
-
-
-//  -----------------------------------------------
-
-void TransposeApp::onRotarySW(RotarySwitch::RSW_DIR dir)
-{
-	if (dir == RotarySwitch::CW) {
-		if (transpose < app_scale.get_n_transpose()-1) {
-			transpose += 1;
-		}
-	} else {
-		if (transpose > 0) {
-			transpose -= 1;
-		}
-	}
-
-	//serial_log("TransposeApp::onRotarySW: %d %d", dir, transpose);
-	display.show_app_msg(" %d", transpose);
-}
-
-void TransposeApp::onButton(int state)
-{
-	if (state == 1) {
-		app = &app_menu;
-
-		display.show_app_msg(" ");
-		display.show_menu(app_menu.get_current()->get_title());
-	}
-}
-
-//  -----------------------------------------------
-
-void CalibApp::onRotarySW(RotarySwitch::RSW_DIR dir)
-{
-	if (dir == RotarySwitch::CW) {
-		current++;
-	} else {
-		current--;
-	}
-
-	//serial_log("CalibApp::onRotarySW: %d %s %d", dir, CodeName[current.index], current.oct);
-	display.show_app_msg(" %s %d", CodeName[current.index], current.oct);
-}
-
-void CalibApp::onButton(int state)
-{
-	if (state == 1) {
-		app = &app_menu;
-
-		display.show_app_msg(" ");
-		display.show_menu(app_menu.get_current()->get_title());
-	}
-}
-
-//  -----------------------------------------------
-
-void MenuApp::onRotarySW(RotarySwitch::RSW_DIR dir)
-{
-	if (dir == RotarySwitch::CW) {
-		if (current->next) current = current->next;
-
-	} else {
-		if (current->prev) current = current->prev;
-
-	}
-
-	//serial_log("MenuApp::onRotarySW: %d %s", dir, current->get_title() );
-	display.show_menu(current->get_title());
-}
-
-void MenuApp::onButton(int state)
-{
-	if (state == 1) {
-		if (current->child) current = current->child;
-		else current->exec();
-	}
-}
-
-void Menu_Back::exec() {
-	auto current = app->get_current();
-	if (current->parent) current = current->parent;
-}
-
-//  -----------------------------------------------
-
-void Menu_Scale::exec()
-{
-	display.show_app_msg(" %s", app_scale.get_scale_name());
-	//serial_log("Menu_Scale::exec: %s", app_scale.get_scale_name());
-
-	app = &app_scale;
-}
-
-void Menu_Transpose::exec()
-{
-	display.show_app_msg(" %d", app_transpose.get_transpose());
-	//serial_log("Menu_Transpose::exec: %d", app_transpose.get_transpose());
-
-	app = &app_transpose;
-}
-
-void Menu_Calib::exec()
-{
-	auto p = app_calib.get_pitch();
-	//serial_log("Menu_Calib::exec: %s %d", CodeName[p.index], p.oct);
-	display.show_app_msg(" %s %d", CodeName[p.index], p.oct);
-
-	app = &app_calib;
-}
 
 //  -----------------------------------------------
 
@@ -303,10 +83,12 @@ private:
 };
 
 RSW_cmd rsw1(PIN_ROTARY_SW1, PIN_ROTARY_SW2);
+/*	
 ICACHE_RAM_ATTR void onRotarySW()
 {
 	rsw1.callback();
 }
+*/
 
 //  -----------------------------------------------
 
@@ -331,6 +113,7 @@ Button_func button_1(PIN_BUTTON);
 ISR(PCINT0_vect)
 {
 	button_1.callback();
+	rsw1.callback();
 }
 
 void setup() {
@@ -343,13 +126,14 @@ void setup() {
 
 	pinMode(PIN_ROTARY_SW1, INPUT);
 	pinMode(PIN_ROTARY_SW2, INPUT);
-	attachInterrupt(digitalPinToInterrupt(PIN_ROTARY_SW1), onRotarySW, CHANGE);
+	//attachInterrupt(digitalPinToInterrupt(PIN_ROTARY_SW1), onRotarySW, CHANGE);
 
 	pinMode(PIN_BUTTON, INPUT_PULLUP);
 
 	PCICR = 0;
 	PCMSK0 = 
 		1 << 5 // 9
+		| 1 << 6 // 10
 	;
 	PCICR = 
 		1 // PCIE0
@@ -359,70 +143,9 @@ void setup() {
 	menu_scale.add_sibling(&menu_trans);
 
 	SPI.begin();
-}
 
-unsigned int receive() {
-	SPI.beginTransaction(settings);
-		digitalWrite(PIN_AD_CS, LOW);
-			SPI.transfer(0b00000110); // start bit:1, ch 0 single end
-			byte high_byte = SPI.transfer(0b00000000);
-			byte low_byte = SPI.transfer(0x00); // dummy
-		digitalWrite(PIN_AD_CS, HIGH);
-	SPI.endTransaction();
-
-	unsigned int data_ch0 = ((high_byte & 0x0f) << 8) + low_byte;
-	return data_ch0;
-}
-
-void emit(unsigned int data)
-{
-	SPI.beginTransaction(settings);
-		digitalWrite(PIN_DA_LATCH, HIGH);
-		digitalWrite(PIN_DA_CS, LOW);
-			SPI.transfer((data >> 8) | 0x30 ); // ch A, no buf, 1x, no shdn / upper 4 bits
-			SPI.transfer( data & 0xff ); // lower 8 bits
-		digitalWrite(PIN_DA_CS, HIGH);
-		digitalWrite(PIN_DA_LATCH, LOW);
-	SPI.endTransaction();
-}
-
-
-/* A-D measurement
-512  -> 0.999 v / 0.625 v
-1536 -> 2.000 v / 1.875 v
-2560 -> 3.002 v / 3.125 v
-3584 -> 4.00 v  / 4.375 v
-
--> 9.768e-4 V/d
-*/
-double ad_to_volts(unsigned int ad_out)
-{
-	return 9.76888e-4*(ad_out - 1536) + 2.000;
-}
-
-/* D-A measurement
-0    -> 0.0014 v
-512  -> 0.5935 v
-1536 -> 1.786  v
-2560 -> 2.973  v
-3584 -> 4.17   v
-4095 -> 4.76   v
-*/
-double expected_da_out(unsigned int da_in)
-{
-	return 1.1607e-3*(da_in - 1536) + 1.786;
-}
-
-unsigned int volts_to_da(double v)
-{
-	return 861.5491*(v - 1.786) + 1536;
-}
-
-// calibrate v_out to be equal to v_in
-//   -> measured, but incorrect output. Not to be used.
-unsigned int calibrate(unsigned int in)
-{
-	return 8.4163e-1*(double)in +427.62774;
+	display.init();
+	display.show_menu(app_menu.get_current()->get_title());
 }
 
 unsigned int convert(unsigned int input)
@@ -440,7 +163,7 @@ unsigned int convert(unsigned int input)
 	}
 
 	if (prev != p) {
-		//display.show_status("%s %s %d", app_scale.get_scale_name(), CodeName[p.index], p.oct);
+		display.show_status("%s %s %d", app_scale.get_scale_name(), CodeName[p.index], p.oct);
 		prev = p;
 	}
 
@@ -448,18 +171,20 @@ unsigned int convert(unsigned int input)
 }
 
 void loop() {
-	unsigned int data_ch0 = receive();
+	unsigned int data_ch0 = ad_converter.receive();
 
 //*
 	data_ch0 = 
 		convert(data_ch0)
 	;
 // */
-	emit(data_ch0);
+	da_converter.emit(data_ch0, Channel_A);
 
 /*
 	double v_ch0 = data_ch0 *V_REF/(double)N_CH;
 
 	serial_log("AD_OUT: %d Volts: %lf", data_ch0, v_ch0);
 // */
+
+	display.display(); // graphics functions cannot be called in interruption callbacks.
 }
