@@ -2,6 +2,7 @@
 #define TURING_MACHINE_UI__H
 
 #include "ui_common.h"
+#include <stddef.h>
 
 struct Menu_Length : Menu
 {
@@ -10,30 +11,6 @@ struct Menu_Length : Menu
 	void exec() override;
 };
 
-//  -----------------------------------------------
-
-
-class MenuApp : public Application
-{
-public:
-	MenuApp(Menu *top) : current(top) {}
-	void onRotarySW(RotarySwitch::RSW_DIR dir) override;
-	void onButton(int state) override;
-	Menu * const get_current() const {return current;}
-
-private:
-	Menu *current;
-};
-
-struct Menu_Back : Menu
-{
-	Menu_Back(const char *title, const MenuApp *const app)
-		: Menu(title), app(app)
-	{}
-	void exec() override;
-
-	MenuApp *app;
-};
 
 //  -----------------------------------------------
 
@@ -48,11 +25,13 @@ public:
 
 	void onButton(int state) override;
 
+	size_t get_seq_len() const { return seq_len; }
+
+	static constexpr const size_t SEQ_MAX_LEN = 32;
+
 private:
+	size_t seq_len = 16;
 };
-
-//  -----------------------------------------------
-
 
 //  -----------------------------------------------
 
