@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name ClockGenerator)(type KiCad)(uri /Users/nikeda/Documents/kicad/ClockGenerator/ClockGenerator.pretty)(options "")(descr ""))
+)

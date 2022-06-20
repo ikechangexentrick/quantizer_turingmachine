@@ -186,5 +186,10 @@ void loop() {
 	serial_log("AD_OUT: %d Volts: %lf", data_ch0, v_ch0);
 // */
 
-	display.display(); // graphics functions cannot be called in interruption callbacks.
+ 	// graphics functions cannot be called in interruption callbacks.
+	display.display(
+		[&](){
+			display.show_menu();
+		}
+	);
 }
