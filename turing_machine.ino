@@ -1,4 +1,5 @@
 #include <SPI.h>
+
 #include "turing_machine_ui.h"
 #include "button.h"
 #include "Display_OLED.h"
@@ -195,5 +196,11 @@ void setup() {
 }
 
 void loop() {
-	display.display(); // graphics functions cannot be called in interruption callbacks.
+	// graphics functions cannot be called in interruption callbacks.
+	display.display(
+		[&](){
+			display.show_menu();
+			display.show_graph(sequence, app_length.get_seq_len(), seq_idx);
+		}
+	);
 }
