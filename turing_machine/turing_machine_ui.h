@@ -11,15 +11,20 @@ struct Menu_Length : Menu
 	void exec() override;
 };
 
+struct Menu_Mode : Menu
+{
+	Menu_Mode() : Menu("Mode>") {}
+
+	void exec() override;
+};
+
 
 //  -----------------------------------------------
 
 class LengthApp : public Application
 {
 public:
-	LenghtApp()
-	{
-	}
+	LengthApp() = default;
 
 	void onRotarySW(RotarySwitch::RSW_DIR dir) override;
 
@@ -30,9 +35,32 @@ public:
 	static constexpr const size_t SEQ_MAX_LEN = 32;
 
 private:
-	size_t seq_len = 16;
+	size_t seq_len = 8;
 };
 
 //  -----------------------------------------------
+	
+class ModeApp : public Application
+{
+public:
+	enum Mode {
+		CV
+		, Gate
+	};
+
+	ModeApp() = default;
+
+	void onRotarySW(RotarySwitch::RSW_DIR dir) override;
+
+	void onButton(int state) override;
+
+	Mode get_mode() const { return mode; }
+	const char *get_mode_name() const { return name[(int)mode]; }
+
+private:
+	Mode mode = CV;
+	const char *name[2] = {"CV", "Gate"};
+};
+
 
 #endif // TURING_MACHINE_UI__H

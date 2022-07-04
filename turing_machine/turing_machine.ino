@@ -62,14 +62,17 @@ MCP4922 da_converter(settings, PIN_DA_CS, PIN_DA_LATCH);
 //  -----------------------------------------------
 
 int sequence[LengthApp::SEQ_MAX_LEN];
+bool gate[LengthApp::SEQ_MAX_LEN];
 volatile size_t seq_idx = 0;
 
 //  -----------------------------------------------
 
 Menu_Length menu_length;
+Menu_Mode menu_mode;
 MenuApp app_menu(&menu_length, &display);
 
 LengthApp app_length;
+ModeApp app_mode;
 
 Application *app = &app_menu;
 
@@ -125,12 +128,12 @@ ICACHE_RAM_ATTR void onClock()
 	int th = analogRead(PIN_CONTROL);
 	if (th < 20) {
 		th = 0;
-		display.show_status("%s %d steps: free", ic, app_length.get_seq_len());
+		display.show_status("%s %d steps: %s free", ic, app_length.get_seq_len(), app_mode.get_mode_name());
 	} else if (th > 1000) {
 		th = 1024;
-		display.show_status("%s %d steps: lock", ic, app_length.get_seq_len());
+		display.show_status("%s %d steps: %s lock", ic, app_length.get_seq_len(), app_mode.get_mode_name());
 	} else {
-		display.show_status("%s %d steps: %d %%", ic, app_length.get_seq_len(), (int)((double)th/1024*100));
+		display.show_status("%s %d steps: %s %d %%", ic, app_length.get_seq_len(), app_mode.get_mode_name(), (int)((double)th/1024*100));
 	}
 
 	if (clock == HIGH) {
@@ -140,21 +143,44 @@ ICACHE_RAM_ATTR void onClock()
 			//serial_log("onClock:");
 		}
 
-		if (digitalRead(PIN_WRITE_ON) == LOW) {
-			sequence[seq_idx] = 4095;
-		} else if (digitalRead(PIN_WRITE_OFF) == LOW) {
-			sequence[seq_idx] = 0;
-		} else {
-			int do_change = random(1024);
-			if (do_change > th) {
-				int value = random(N_CH);
-				sequence[seq_idx] = value;
+		if (app_mode.get_mode() == ModeApp::CV) {
+			// CV mode
+			if (digitalRead(PIN_WRITE_ON) == LOW) {
+				sequence[seq_idx] = 4095;
+			} else if (digitalRead(PIN_WRITE_OFF) == LOW) {
+				sequence[seq_idx] = 0;
+			} else {
+				int do_change = random(1024);
+				if (do_change > th) {
+					int value = random(N_CH);
+					sequence[seq_idx] = value;
+				}
 			}
+
+		} else {
+			// gate mode
+			if (digitalRead(PIN_WRITE_ON) == LOW) {
+				gate[seq_idx] = true;
+			} else if (digitalRead(PIN_WRITE_OFF) == LOW) {
+				gate[seq_idx] = false;
+			} else {
+				int do_change = random(1024);
+				if (do_change > th) {
+					int value = random(N_CH);
+					if (value > N_CH/2) {
+						gate[seq_idx] = true;
+					} else {
+						gate[seq_idx] = false;
+					}
+				}
+			}
+
 		}
 	}
 
 	//serial_log("onClock: %s %d %d", do_change>th ? "free" : "lock", seq_idx, sequence[seq_idx]);
-	da_converter.emit(sequence[seq_idx], Channel_A);
+	if (gate[seq_idx]) da_converter.emit(sequence[seq_idx], Channel_A);
+	else da_converter.emit(0, Channel_A);
 }
 
 //  -----------------------------------------------
@@ -191,16 +217,43 @@ void setup() {
 
 	SPI.begin();
 
+	menu_length.add_sibling(&menu_mode);
+
+
+	for (int i = 0; i < LengthApp::SEQ_MAX_LEN; ++i) gate[i] = true;
+
 	display.init();
 	display.show_menu(app_menu.get_current()->get_title());
 }
+
+void show_graph(const int *arr, const bool *flag, size_t len, size_t start)
+{
+	static constexpr const size_t MERGIN = 2; // pixel
+	static constexpr const auto top = 0+Display_OLED::TEXT_HEIGHT*3+Display_OLED::TEXT_HEIGHT/2 + MERGIN;
+	static constexpr const auto bottom = Display_OLED::OLED_HEIGHT - MERGIN;
+	static constexpr const auto hscale = 4096/(bottom-top);
+
+	static constexpr const auto left = MERGIN;
+	static constexpr const auto right = Display_OLED::OLED_WIDTH-MERGIN;
+
+	const size_t dx = (right-left)/len;
+	for (size_t i = 0; i < len; ++i) {
+		auto idx = (start+i < len) ? (start+i) : (i+start-len);
+		if (flag[idx]) display.draw_hbar(left+dx*i, bottom-arr[idx]/hscale, dx);
+	}
+}
+/*
+0 1 2 3 4 5 6 7 8 9
+4 5       9 ^ 1 2 3 
+i-(len-start)
+*/
 
 void loop() {
 	// graphics functions cannot be called in interruption callbacks.
 	display.display(
 		[&](){
 			display.show_menu();
-			display.show_graph(sequence, app_length.get_seq_len(), seq_idx);
+			show_graph(sequence, gate, app_length.get_seq_len(), seq_idx);
 		}
 	);
 }
